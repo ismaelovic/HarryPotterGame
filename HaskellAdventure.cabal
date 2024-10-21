@@ -1,0 +1,22 @@
+cabal-version:       2.4
+name:                haskellAdventure
+version:             0.1.0.0
+synopsis:            A text-based adventure game set in Hogwarts
+-- description:
+homepage:            https://github.com/yourusername/haskellAdventure
+-- bug-reports:
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              Your Name
+maintainer:          your.email@example.com
+-- copyright:
+category:            Game
+extra-source-files:  CHANGELOG.md, README.md
+
+executable haskellAdventure
+  main-is:             Main.hs
+  build-depends:       base >=4.14.3.0 && <5,
+                       ansi-terminal
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  mixins:              ansi-terminal (System.Console.ANSI as System.Console.ANSI)
