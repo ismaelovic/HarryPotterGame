@@ -5,6 +5,7 @@ import Data.Char (toLower)
 import Data.List (isPrefixOf, delete, find)
 import Data.Maybe (fromMaybe)
 import Control.Monad (unless)
+import Data.String (IsString)
 
 --Colorize dependency
 colorize :: Int -> String -> String
@@ -22,7 +23,8 @@ cyan = colorize 36
 data GameState = GameState {
     playerLocation :: Location,
     playerInventory :: [Item],
-    worldItems :: [(String, [Item])]
+    worldItems :: [(String, [Item])],
+    worldEnemies :: [(String, [Enemy])]
 }
 
 data Location = Location {
@@ -31,9 +33,13 @@ data Location = Location {
     locationExits :: [(String, String)]
 }
 
+data Enemy = Enemy {
+    enemyName :: String,
+    enemyHealth :: Int
+}
+
 type Item = String
 
--- Initial game state
 initialState :: GameState
 initialState = GameState {
     playerLocation = greatHall,
@@ -45,6 +51,14 @@ initialState = GameState {
         ("Gryffindor Common Room", ["Invisibility Cloak"]),
         ("Hogwarts Grounds", ["Broomstick"]),
         ("Forbidden Forest", ["Unicorn Hair"])
+    ],
+    worldEnemies = [
+        -- ("Great Hall", [Enemy { enemyName = "Mischievous Mop", enemyHealth = 5 }]),
+        -- ("Entrance Hall", [Enemy { enemyName = "Staircase Specter", enemyHealth = 10 }]),
+        ("Hogwarts Kitchens", [Enemy { enemyName = "Culinary Poltergeist", enemyHealth = 7 }]),
+        ("Gryffindor Common Room", [Enemy { enemyName = "Talkative Portrait", enemyHealth = 3 }]),
+        ("Hogwarts Grounds", [Enemy { enemyName = "Whomping Willow", enemyHealth = 15 }]),
+        ("Forbidden Forest", [Enemy { enemyName = "Lost Centaur", enemyHealth = 12 }])
     ]
 }
 
@@ -91,6 +105,8 @@ forbiddenForest = Location {
     locationExits = [("Back", "Hogwarts Grounds")]
 }
 
+
+
 -- Game logic
 gameLoop :: GameState -> IO ()
 gameLoop state = do
@@ -115,15 +131,17 @@ printLocationInfo state = do
     let currentLocation = playerLocation state
         exitDesc = intercalate ", " (map fst (locationExits currentLocation))
         itemsDesc = intercalate ", " (getLocationItems state (locationName currentLocation))
+        enemiesDesc = intercalate ", " (map enemyName (getLocationEnemies state (locationName currentLocation)))
     putStrLn $ "\n" ++ yellow (locationName currentLocation)
     putStrLn $ yellow (locationDescription currentLocation)
-    putStrLn $ cyan "Exits: " ++ exitDesc
-    putStrLn $ cyan "Items: " ++ itemsDesc
+    putStrLn $ cyan "Exits: " ++ blue exitDesc
+    putStrLn $ cyan "Items: " ++ blue itemsDesc
+    unless (null enemiesDesc) $ putStrLn $ red "Enemies: " ++ red enemiesDesc
 
 processAction :: String -> GameState -> (GameState, String)
 processAction action state
     | map toLower action == "quit" || action == "exit" = (state, "")
-    | map toLower action == "inventory" = (state, "You are carrying: " ++ show (playerInventory state))
+    | map toLower action == "inventory" = (state, yellow "You are carrying: " ++ green (show (playerInventory state)))
     | map toLower action == "look" = (state, lookAround state)
     | "go " `isPrefixOf` map toLower action = 
         let direction = drop 3 action
@@ -135,18 +153,21 @@ processAction action state
             Nothing -> (state, red "You can't go that way!" )
     | "take " `isPrefixOf` map toLower action =
         takeItem (drop 5 action) state
+    | "kill " `isPrefixOf` map toLower action =
+        killEnemy (drop 5 action) state
     | "drop " `isPrefixOf` map toLower action =
         dropItem (drop 5 action) state
     | map toLower action == "help" =
-        (state, "You can use the following commands:\n" ++
-                "'go [direction]', 'take [item]', 'drop [item]', 'inventory', 'look', 'help', and 'quit'.")
+        (state, green ("This is an interactive text based game. Explore the Harry Potter themed locations and enemies." ++ 
+                "\n\nYou can use the following commands:\n" ++
+                "'go [direction]', 'take [item]', 'drop [item]', 'kill'[enemy], 'inventory', 'look', 'help', and 'quit'."))
     | otherwise = (state, red "I don't understand that command.\n ------------------")
 
 lookAround :: GameState -> String
 lookAround state =
     let currentLocation = playerLocation state
-        exitDesc = yellow ("Exits: " ++ unwords (map fst (locationExits currentLocation)))
-        itemsDesc = green ("Items here: " ++ unwords (getLocationItems state (locationName currentLocation)))
+        exitDesc = yellow ("Exits: " ++ blue (intercalate ", " (map fst (locationExits currentLocation))))
+        itemsDesc = yellow ("Items here: " ++ blue (intercalate ", " (getLocationItems state (locationName currentLocation))))
     in yellow (locationDescription currentLocation) ++ "\n" ++ exitDesc ++ "\n" ++ itemsDesc
 
 takeItem :: String -> GameState -> (GameState, String)
@@ -176,6 +197,18 @@ dropItem item state =
              "You drop the " ++ item ++ ".")
        else (state, "You don't have a " ++ item ++ ".")
 
+killEnemy :: String -> GameState -> (GameState, String)
+killEnemy enemy state =
+    let currentLocationName = locationName (playerLocation state)
+        currentEnemies = getLocationEnemies state currentLocationName
+        lowerEnemy = map toLower enemy
+        enemyExists = any (\e -> map toLower (enemyName e) == lowerEnemy) currentEnemies
+        newEnemies = filter (\e -> map toLower (enemyName e) /= lowerEnemy) currentEnemies
+    in if enemyExists
+        then (state { worldEnemies = updateWorldEnemies state currentLocationName newEnemies },
+              green "You successfully killed " ++ red enemy)
+        else (state, red ("There is no " ++ enemy ++ " here"))
+
 -- Helper functions
 findLocation :: String -> Maybe Location
 findLocation name = case name of
@@ -193,6 +226,15 @@ getLocationItems state locName = fromMaybe [] (lookup locName (worldItems state)
 updateWorldItems :: GameState -> String -> [Item] -> [(String, [Item])]
 updateWorldItems state locName newItems = 
     (locName, newItems) : filter (\(name, _) -> name /= locName) (worldItems state)
+
+getLocationEnemies :: GameState -> String -> [Enemy]
+getLocationEnemies state locName = 
+    fromMaybe [] (lookup locName (worldEnemies state))
+
+updateWorldEnemies :: GameState -> String -> [Enemy] -> [(String, [Enemy])]
+updateWorldEnemies state locName newEnemies = 
+    (locName, newEnemies) : filter (\(name, _) -> name /= locName) (worldEnemies state)
+
 
 -- Main function
 main :: IO ()
